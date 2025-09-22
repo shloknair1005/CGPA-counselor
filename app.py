@@ -1,10 +1,10 @@
 import re
-import subprocess
 import streamlit as st
 import joblib
 import numpy as np
 import time
 from datetime import datetime
+from huggingface_hub import InferenceClient
 
 # Configure page
 st.set_page_config(
@@ -597,21 +597,30 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-def call_ollama(prompt: str, model: str = "llama3") -> str:
+# Initialize Hugging Face client
+try:
+    client = InferenceClient()
+except Exception as e:
+    st.error(f"Failed to initialize Hugging Face client: {e}")
+    client = None
+
+def get_ai_counselor_response(prompt: str):
     """
-    Runs `ollama run <model>` feeding `prompt` on stdin.
-    Requires the Ollama CLI and the model installed locally.
+    Calls the Hugging Face Inference API for text generation.
     """
+    if not client:
+        return "<Hugging Face client not initialized>"
     try:
-        cp = subprocess.run(
-            ["ollama", "run", model],
-            input=prompt.encode("utf-8"),
-            capture_output=True,
-            check=True
+        # Using a reliable instruction-following model
+        response = client.text_generation(
+            model="mistralai/Mistral-7B-Instruct-v0.1",
+            prompt=prompt,
+            max_new_tokens=150,
+            temperature=0.7,
         )
-        return cp.stdout.decode("utf-8")
-    except subprocess.CalledProcessError as e:
-        return f"<Ollama error> {e.stderr.decode('utf-8')}"
+        return response
+    except Exception as e:
+        return f"<Hugging Face API error> {e}"
 
 
 @st.cache_data
@@ -817,7 +826,8 @@ if st.button("🔮 Predict My CGPA", type="primary"):
 
         # Get AI response
         with st.spinner("🧠 AI Counselor is thinking..."):
-            raw = call_ollama(prompt, model="llama3").strip()
+            raw = get_ai_counselor_response(prompt).strip()
+
 
         # Parse AI response
         float_matches = re.findall(r"[0-9]+(?:\.[0-9]+)?", raw)
@@ -851,6 +861,9 @@ if st.button("🔮 Predict My CGPA", type="primary"):
             else:
                 st.markdown('<div class="info-alert">✅ AI prediction aligns closely with baseline model</div>',
                             unsafe_allow_html=True)
+        else:
+             st.markdown(f'<div class="error-alert">Could not parse AI response: {raw}</div>', unsafe_allow_html=True)
+
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -865,7 +878,7 @@ if st.button("🔮 Predict My CGPA", type="primary"):
             f'<strong>Baseline Performance Category:</strong> <span style="color: #000000;">{baseline_category.title()}</span>',
             unsafe_allow_html=True)
 
-        if float_matches and explanation:
+        if float_matches and 'explanation' in locals():
             st.markdown(
                 f'<strong>AI-Refined Performance Category:</strong> <span style="color: #000000;">{ai_category.title()}</span>',
                 unsafe_allow_html=True)
